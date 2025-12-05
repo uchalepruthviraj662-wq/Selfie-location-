@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Send selfie & location (consent required)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, Arial; max-width: 720px; margin: 2rem; }
+    video { width: 100%; max-width: 360px; border: 1px solid #ccc; }
+    img { max-width: 100%; }
+    .hidden { display: none; }
+    .danger { color: darkred; }
+  </style>
+</head>
+<body>
+  <h1>Share selfie & location</h1>
+
+  <p>
+    This page will ask for permission to access your camera and location.
+    Your photo and coordinates will be uploaded to the server <strong>only if you press "Take & Send"</strong>.
+    Do not proceed unless you understand and consent.
+  </p>
+
+  <label>
+    <input type="checkbox" id="consent" />
+    I explicitly consent to share my selfie and location with the recipient.
+  </label>
+
+  <div>
+    <button id="startBtn">Start camera (permission will be requested)</button>
+    <button id="captureBtn" disabled>Take & Send</button>
+  </div>
+
+  <div id="cameraArea" class="hidden">
+    <p><strong>Camera preview:</strong></p>
+    <video id="video" autoplay playsinline></video>
+  </div>
+
+  <div id="resultArea" class="hidden">
+    <p><strong>Captured photo:</strong></p>
+    <img id="photo" alt="captured selfie" />
+    <p><strong>Location:</strong> <span id="coords"></span></p>
+    <p id="status"></p>
+  </div>
+
+<script>
+const startBtn = document.getElementById('startBtn');
+const captureBtn = document.getElementById('captureBtn');
+const consent = document.getElementById('consent');
+const video = document.getElementById('video');
+const cameraArea = document.getElementById('cameraArea');
+const resultArea = document.getElementById('resultArea');
+const photo = document.getElementById('photo');
+const coordsSpan = document.getElementById('coords');
+const status = document.getElementById('status');
+
+let stream = null;
+
+startBtn.addEventListener('click', async () => {
+  if (!consent.checked) {
+    alert('Please give explicit consent by checking the box first.');
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    video.srcObject = stream;
+    cameraArea.classList.remove('hidden');
+    captureBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    alert('Unable to access camera: ' + (err.message || err));
+  }
+});
+
+captureBtn.addEventListener('click', async () => {
+  if (!consent.checked) {
+    alert('Consent required.');
+    return;
+  }
+  captureBtn.disabled = true;
+  status.textContent = 'Capturing...';
+
+  // Capture frame to canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  const file = new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
+
+  // Get geolocation
+  if (!('geolocation' in navigator)) {
+    alert('Geolocation not available in this browser.');
+    status.textContent = '';
+    captureBtn.disabled = false;
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(async (position) => {
+    const lat = position.coords.latitude;
+    const lon = position.coords.longitude;
+    coordsSpan.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+
+    // Show captured photo locally
+    photo.src = URL.createObjectURL(file);
+    resultArea.classList.remove('hidden');
+
+    // Upload (example) — replace URL with your server endpoint
+    status.textContent = 'Uploading...';
+    try {
+      const form = new FormData();
+      form.append('selfie', file);
+      form.append('latitude', lat);
+      form.append('longitude', lon);
+      // Optional: add a consent token, timestamp, or user ID
+      form.append('consent', 'user-checked-consent-box');
+      form.append('timestamp', new Date().toISOString());
+
+      const resp = await fetch('https://your-server.example/upload', {
+        method: 'POST',
+        body: form,
+      });
+
+      if (!resp.ok) throw new Error('Upload failed: ' + resp.status);
+      status.textContent = 'Uploaded successfully.';
+    } catch (err) {
+      console.error(err);
+      status.textContent = 'Upload error: ' + (err.message || err);
+    } finally {
+      captureBtn.disabled = false;
+    }
+
+  }, (err) => {
+    console.error(err);
+    alert('Could not obtain location: ' + (err.message || err));
+    status.textContent = '';
+    captureBtn.disabled = false;
+  }, {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 0
+  });
+});
+</script>
+</body>
+    </html>
